@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orbital Oddity</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        /* Basic Reset and Body Styling */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0a0a1a; /* Dark space blue */
+            color: #e0e0e0; /* Light grey for text */
+            font-family: 'Press Start 2P', cursive;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden; /* Prevent scrollbars from canvas */
+            text-align: center;
+        }
+
+        /* Game Container */
+        #game-container {
+            border: 3px solid #4a4a8a; /* Neon-ish purple border */
+            box-shadow: 0 0 20px #4a4a8a, inset 0 0 10px #2a2a5a;
+            background-color: #000; /* Black background for canvas */
+            position: relative; /* For message box positioning */
+            border-radius: 10px;
+        }
+
+        /* Canvas Styling */
+        canvas {
+            display: block; /* Removes extra space below canvas */
+            background-color: transparent; /* Background handled by container */
+            border-radius: 8px; /* Match container rounding slightly */
+        }
+
+        /* UI Elements Styling (Score, High Score) */
+        #ui-elements {
+            margin-top: 15px;
+            font-size: 1.2em;
+            display: flex;
+            justify-content: space-around;
+            width: 90%;
+            max-width: 600px; /* Match typical canvas width */
+        }
+
+        #score, #high-score {
+            color: #00ff00; /* Bright green for score */
+            text-shadow: 0 0 5px #00ff00;
+        }
+        
+        #high-score {
+            color: #ffff00; /* Bright yellow for high score */
+            text-shadow: 0 0 5px #ffff00;
+        }
+
+        /* Buttons Styling */
+        .game-button {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #303060; /* Dark purple-blue */
+            color: #e0e0ff; /* Light lavender text */
+            border: 2px solid #7070ff; /* Neon blue border */
+            padding: 12px 20px;
+            font-size: 1em;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
+            text-shadow: 1px 1px 0px #000;
+            margin-top: 20px;
+            box-shadow: 0 4px 0 #202040; /* 3D effect */
+        }
+
+        .game-button:hover {
+            background-color: #404080;
+            box-shadow: 0 4px 0 #303060, 0 0 15px #a0a0ff;
+        }
+
+        .game-button:active {
+            background-color: #202050;
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 #101020;
+        }
+        
+        /* Message Box Styling */
+        #message-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(10, 10, 30, 0.9); /* Semi-transparent dark blue */
+            border: 2px solid #7070ff;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: 0 0 20px #4a4a8a;
+            z-index: 100; /* Ensure it's on top */
+            display: none; /* Hidden by default */
+            font-size: 1.5em;
+        }
+        #message-box p {
+            margin-bottom: 20px;
+            color: #ffff00; /* Yellow for game over text */
+        }
+
+        /* Controls Info */
+        #controls-info {
+            margin-top: 20px;
+            font-size: 0.8em;
+            color: #aaa;
+        }
+        #controls-info p {
+            margin: 5px 0;
+        }
+
+    </style>
+</head>
+<body>
+    <h1>Orbital Oddity</h1>
+
+    <div id="ui-elements">
+        <div id="score">Score: 0</div>
+        <div id="high-score">High Score: 0</div>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="message-box">
+            <p id="message-text">Game Over!</p>
+            <button id="restartButton" class="game-button">Restart Game</button>
+        </div>
+    </div>
+
+    <button id="startButton" class="game-button">Start Game</button>
+    
+    <div id="controls-info">
+        <p>Controls:</p>
+        <p>UP Arrow / W: Move Outward</p>
+        <p>DOWN Arrow / S: Move Inward</p>
+    </div>
+
+    <script>
+        // Get canvas and context
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // UI Elements
+        const scoreDisplay = document.getElementById('score');
+        const highScoreDisplay = document.getElementById('high-score');
+        const startButton = document.getElementById('startButton');
+        const restartButton = document.getElementById('restartButton');
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+
+        // Game state variables
+        let score = 0;
+        let highScore = localStorage.getItem('orbitalOddityHighScore') || 0; // Load high score from local storage
+        let gameRunning = false;
+        let animationFrameId;
+
+        // Game world properties
+        const anomalyRadius = 30; // Radius of the central anomaly
+        let canvasWidth = 600; // Default canvas width
+        let canvasHeight = 400; // Default canvas height
+
+        // Player properties
+        const playerBaseSize = 10;
+        let player = {
+            orbitalRadius: 100, // Distance from anomaly center
+            angle: 0,           // Current angle in radians
+            speed: 0.02,        // Angular speed (radians per frame)
+            size: playerBaseSize,
+            minOrbitalRadius: anomalyRadius + playerBaseSize + 10, // Min distance from anomaly
+            maxOrbitalRadius: (Math.min(canvasWidth, canvasHeight) / 2) - playerBaseSize - 10, // Max distance
+            color: '#00ffff',   // Cyan
+            trail: []           // For a simple motion trail
+        };
+
+        // Orb properties
+        const orbSize = 7;
+        const maxOrbs = 5;
+        let orbs = [];
+
+        // Debris properties
+        const debrisBaseSize = 12;
+        const maxDebris = 3; // Start with fewer debris
+        let debris = [];
+        let debrisSpawnCounter = 0;
+        const debrisSpawnInterval = 180; // Spawn debris less frequently initially
+
+        // --- Utility Functions ---
+        
+        // Calculate distance between two points
+        function distance(x1, y1, x2, y2) {
+            return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+        }
+
+        // Convert polar coordinates (radius, angle) to Cartesian (x, y) relative to center
+        function polarToCartesian(radius, angle) {
+            return {
+                x: canvas.width / 2 + radius * Math.cos(angle),
+                y: canvas.height / 2 + radius * Math.sin(angle)
+            };
+        }
+
+        // --- Drawing Functions ---
+
+        // Draw the central anomaly
+        function drawAnomaly() {
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2, canvas.height / 2, anomalyRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff4444'; // Reddish color for anomaly
+            ctx.shadowColor = '#ff0000';
+            ctx.shadowBlur = 15;
+            ctx.fill();
+            ctx.shadowBlur = 0; // Reset shadow
+        }
+
+        // Draw the player
+        function drawPlayer() {
+            // Draw trail
+            player.trail.forEach((p, index) => {
+                const trailPos = polarToCartesian(p.orbitalRadius, p.angle);
+                ctx.beginPath();
+                ctx.arc(trailPos.x, trailPos.y, player.size * (index / player.trail.length) * 0.5, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(0, 255, 255, ${0.2 * (index / player.trail.length)})`;
+                ctx.fill();
+            });
+            
+            const pos = polarToCartesian(player.orbitalRadius, player.angle);
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, player.size, 0, Math.PI * 2);
+            ctx.fillStyle = player.color;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = player.color;
+            ctx.shadowBlur = 10;
+            ctx.fill();
+            ctx.stroke();
+            ctx.shadowBlur = 0; // Reset shadow
+        }
+
+        // Draw an orb
+        function drawOrb(orb) {
+            const pos = polarToCartesian(orb.orbitalRadius, orb.angle);
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, orb.size, 0, Math.PI * 2);
+            ctx.fillStyle = orb.color;
+            ctx.shadowColor = orb.color;
+            ctx.shadowBlur = 8;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        // Draw a debris item
+        function drawDebris(item) {
+            const pos = polarToCartesian(item.orbitalRadius, item.angle);
+            ctx.beginPath();
+            // Make debris look a bit more irregular/jagged
+            const spikes = 5 + Math.floor(item.size / 4); // More spikes for larger debris
+            const outerRadius = item.size;
+            const innerRadius = item.size * 0.6;
+            ctx.moveTo(pos.x + outerRadius * Math.cos(item.angle), pos.y + outerRadius * Math.sin(item.angle));
+            for (let i = 0; i < spikes * 2; i++) {
+                const radius = (i % 2 === 0) ? outerRadius : innerRadius;
+                const currentAngle = item.angle + (i * Math.PI / spikes);
+                ctx.lineTo(pos.x + radius * Math.cos(currentAngle), pos.y + radius * Math.sin(currentAngle));
+            }
+            ctx.closePath();
+            
+            ctx.fillStyle = item.color;
+            ctx.strokeStyle = '#888888';
+            ctx.lineWidth = 1;
+            ctx.shadowColor = item.color;
+            ctx.shadowBlur = 5;
+            ctx.fill();
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
+        // --- Spawning Functions ---
+
+        // Spawn a new orb
+        function spawnOrb() {
+            if (orbs.length < maxOrbs) {
+                const newOrb = {
+                    orbitalRadius: player.minOrbitalRadius + Math.random() * (player.maxOrbitalRadius - player.minOrbitalRadius),
+                    angle: Math.random() * Math.PI * 2, // Random angle
+                    size: orbSize,
+                    color: '#00ff00', // Green
+                    value: 10
+                };
+                orbs.push(newOrb);
+            }
+        }
+
+        // Spawn a new debris item
+        function spawnDebris() {
+            if (debris.length < maxDebris + Math.floor(score / 200)) { // Increase max debris with score
+                const newDebris = {
+                    orbitalRadius: player.minOrbitalRadius + Math.random() * (player.maxOrbitalRadius - player.minOrbitalRadius),
+                    angle: Math.random() * Math.PI * 2,
+                    size: debrisBaseSize + Math.random() * 5, // Varying sizes
+                    speed: 0.005 + Math.random() * 0.015, // Varying speeds
+                    color: '#808080', // Grey
+                    direction: Math.random() < 0.5 ? 1 : -1 // Random orbital direction
+                };
+                // Ensure debris doesn't spawn right on top of the player
+                const playerPos = polarToCartesian(player.orbitalRadius, player.angle);
+                const debrisPos = polarToCartesian(newDebris.orbitalRadius, newDebris.angle);
+                if (distance(playerPos.x, playerPos.y, debrisPos.x, debrisPos.y) > player.size + newDebris.size + 50) {
+                    debris.push(newDebris);
+                }
+            }
+        }
+
+        // --- Update Functions ---
+
+        // Update player position
+        function updatePlayer() {
+            player.angle += player.speed;
+            if (player.angle > Math.PI * 2) player.angle -= Math.PI * 2;
+            if (player.angle < 0) player.angle += Math.PI * 2;
+
+            // Update trail
+            const currentPos = { orbitalRadius: player.orbitalRadius, angle: player.angle };
+            player.trail.push(currentPos);
+            if (player.trail.length > 10) { // Max trail length
+                player.trail.shift();
+            }
+        }
+
+        // Update debris positions
+        function updateDebris() {
+            debris.forEach(item => {
+                item.angle += item.speed * item.direction;
+                if (item.angle > Math.PI * 2) item.angle -= Math.PI * 2;
+                if (item.angle < 0) item.angle += Math.PI * 2;
+            });
+        }
+
+        // --- Collision Detection ---
+        function checkCollisions() {
+            const playerPos = polarToCartesian(player.orbitalRadius, player.angle);
+
+            // Player vs Orbs
+            for (let i = orbs.length - 1; i >= 0; i--) {
+                const orb = orbs[i];
+                const orbPos = polarToCartesian(orb.orbitalRadius, orb.angle);
+                if (distance(playerPos.x, playerPos.y, orbPos.x, orbPos.y) < player.size + orb.size) {
+                    score += orb.value;
+                    updateScoreDisplay();
+                    orbs.splice(i, 1); // Remove collected orb
+                    spawnOrb(); // Spawn a new one immediately
+                    // Simple particle effect for collection
+                    createParticles(orbPos.x, orbPos.y, orb.color, 10);
+                }
+            }
+
+            // Player vs Debris
+            for (let i = debris.length - 1; i >= 0; i--) {
+                const item = debris[i];
+                const debrisPos = polarToCartesian(item.orbitalRadius, item.angle);
+                if (distance(playerPos.x, playerPos.y, debrisPos.x, debrisPos.y) < player.size * 0.8 + item.size * 0.8) { // Slightly more forgiving collision
+                    gameOver();
+                    // Simple particle effect for collision
+                    createParticles(playerPos.x, playerPos.y, player.color, 20, true);
+                    createParticles(debrisPos.x, debrisPos.y, item.color, 15, true);
+                    break; 
+                }
+            }
+        }
+        
+        // --- Particle System (Simple) ---
+        let particles = [];
+        function createParticles(x, y, color, count, isExplosion = false) {
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    size: Math.random() * (isExplosion ? 4 : 2) + 1,
+                    color: color,
+                    life: isExplosion ? 60 : 30, // Frames
+                    vx: (Math.random() - 0.5) * (isExplosion ? 4 : 2),
+                    vy: (Math.random() - 0.5) * (isExplosion ? 4 : 2)
+                });
+            }
+        }
+
+        function updateAndDrawParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life--;
+
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size * (p.life / (p.life > 30 ? 60:30)), 0, Math.PI * 2); // Shrink over time
+                    ctx.fillStyle = `rgba(${hexToRgb(p.color).r}, ${hexToRgb(p.color).g}, ${hexToRgb(p.color).b}, ${p.life / 30})`;
+                    ctx.fill();
+                }
+            }
+        }
+        
+        function hexToRgb(hex) { // Helper for particle alpha
+            let r = 0, g = 0, b = 0;
+            if (hex.length == 4) { // #RGB
+                r = "0x" + hex[1] + hex[1];
+                g = "0x" + hex[2] + hex[2];
+                b = "0x" + hex[3] + hex[3];
+            } else if (hex.length == 7) { // #RRGGBB
+                r = "0x" + hex[1] + hex[2];
+                g = "0x" + hex[3] + hex[4];
+                b = "0x" + hex[5] + hex[6];
+            }
+            return {r: +r, g: +g, b: +b};
+        }
+
+
+        // --- Game Flow ---
+
+        // Initialize game settings
+        function initGame() {
+            console.log("Initializing game...");
+            score = 0;
+            updateScoreDisplay();
+            updateHighScoreDisplay(); // Update high score display at start
+
+            player.orbitalRadius = canvasHeight / 3;
+            player.angle = 0;
+            player.size = playerBaseSize;
+            player.trail = [];
+            
+            // Recalculate min/max orbital radius based on current canvas size
+            player.minOrbitalRadius = anomalyRadius + player.size + 10;
+            player.maxOrbitalRadius = (Math.min(canvas.width, canvas.height) / 2) - player.size - 10;
+
+
+            orbs = [];
+            debris = [];
+            particles = []; // Clear particles on init
+            debrisSpawnCounter = 0;
+
+            for (let i = 0; i < maxOrbs; i++) spawnOrb();
+            for (let i = 0; i < 1; i++) spawnDebris(); // Start with 1 debris
+            
+            messageBox.style.display = 'none';
+            startButton.style.display = 'none'; // Hide start button once game begins
+            console.log("Game initialized. gameRunning should be true now.");
+        }
+
+        // Game over logic
+        function gameOver() {
+            console.log("Game Over. Setting gameRunning to false.");
+            gameRunning = false;
+            cancelAnimationFrame(animationFrameId);
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('orbitalOddityHighScore', highScore);
+                updateHighScoreDisplay();
+                messageText.textContent = `New High Score: ${score}!`;
+            } else {
+                messageText.textContent = `Game Over! Score: ${score}`;
+            }
+            messageBox.style.display = 'flex'; // Show message box
+        }
+
+        // Update score display
+        function updateScoreDisplay() {
+            scoreDisplay.textContent = `Score: ${score}`;
+        }
+        
+        // Update high score display
+        function updateHighScoreDisplay() {
+            highScoreDisplay.textContent = `High Score: ${highScore}`;
+        }
+
+        // Main game loop
+        function gameLoop() {
+            if (!gameRunning) {
+                // console.log("Game loop called but gameRunning is false."); // This might be too noisy
+                return;
+            }
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw orbital paths (visual aid)
+            for (let r = player.minOrbitalRadius; r < player.maxOrbitalRadius + 10; r += 25) {
+                ctx.beginPath();
+                ctx.arc(canvas.width / 2, canvas.height / 2, r, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(74, 74, 138, 0.2)'; // Faint purple lines
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+            
+            // Update and Draw elements
+            drawAnomaly();
+            
+            updatePlayer();
+            drawPlayer();
+
+            orbs.forEach(drawOrb);
+
+            updateDebris();
+            debris.forEach(drawDebris);
+            
+            updateAndDrawParticles(); // Handle particles
+
+            // Collision detection
+            checkCollisions();
+
+            // Spawn new debris periodically
+            debrisSpawnCounter++;
+            if (debrisSpawnCounter > debrisSpawnInterval - Math.floor(score / 10)) { // Spawn faster as score increases
+                spawnDebris();
+                debrisSpawnCounter = 0;
+            }
+            
+            // Spawn orbs if needed (e.g. if one was missed and drifted off)
+            if (orbs.length < maxOrbs && Math.random() < 0.01) {
+                spawnOrb();
+            }
+
+            // Request next frame
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        // --- Event Listeners ---
+
+        // Handle keyboard input
+        function handleKeyDown(e) {
+            console.log(`Key pressed: ${e.key}, gameRunning: ${gameRunning}`); // DEBUG LOG
+            if (!gameRunning) return;
+
+            const radiusStep = 20; // Increased step for more noticeable movement
+            if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'w') {
+                player.orbitalRadius = Math.min(player.maxOrbitalRadius, player.orbitalRadius + radiusStep);
+                console.log(`Player orbitalRadius after Up/W: ${player.orbitalRadius}`); // DEBUG LOG
+            } else if (e.key === 'ArrowDown' || e.key.toLowerCase() === 's') {
+                player.orbitalRadius = Math.max(player.minOrbitalRadius, player.orbitalRadius - radiusStep);
+                console.log(`Player orbitalRadius after Down/S: ${player.orbitalRadius}`); // DEBUG LOG
+            }
+            // Prevent default browser action for arrow keys (scrolling)
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                e.preventDefault();
+            }
+        }
+        document.addEventListener('keydown', handleKeyDown);
+
+        // Start button
+        startButton.addEventListener('click', () => {
+            if (!gameRunning) {
+                console.log("Start button clicked. Setting gameRunning to true and starting game.");
+                gameRunning = true;
+                initGame();
+                gameLoop();
+                 canvas.focus(); // Attempt to give canvas focus, though listener is on document
+            }
+        });
+        
+        // Restart button
+        restartButton.addEventListener('click', () => {
+            console.log("Restart button clicked.");
+            messageBox.style.display = 'none';
+            startButton.style.display = 'block'; // Show the main start button again
+            score = 0; 
+            updateScoreDisplay();
+            updateHighScoreDisplay(); // Ensure high score is current
+            // gameRunning is still false here, user needs to click Start Game again
+        });
+
+        // --- Canvas Resizing ---
+        function resizeCanvas() {
+            const gameContainer = document.getElementById('game-container');
+            const maxWidth = window.innerWidth * 0.9;
+            const maxHeight = window.innerHeight * 0.7; // Adjusted to give more vertical space for UI
+
+            // Simplified aspect ratio logic, aiming for 3:2 but flexible
+            let targetWidth = Math.min(600, maxWidth);
+            let targetHeight = targetWidth * (2/3);
+
+            if (targetHeight > maxHeight) {
+                targetHeight = maxHeight;
+                targetWidth = targetHeight * (3/2);
+            }
+            
+            canvasWidth = Math.max(300, Math.min(targetWidth, maxWidth)); 
+            canvasHeight = Math.max(200, Math.min(targetHeight, maxHeight));
+
+
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            // Add tabindex to canvas to allow it to receive focus, though not strictly necessary for document listener
+            canvas.setAttribute('tabindex', '0'); 
+            
+            gameContainer.style.width = canvas.width + 'px';
+            gameContainer.style.height = canvas.height + 'px';
+
+            player.minOrbitalRadius = anomalyRadius + player.size + 10;
+            player.maxOrbitalRadius = (Math.min(canvas.width, canvas.height) / 2) - player.size - 10;
+            player.orbitalRadius = Math.max(player.minOrbitalRadius, Math.min(player.maxOrbitalRadius, player.orbitalRadius));
+
+            if (!gameRunning) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawAnomaly();
+                const staticPlayerPos = polarToCartesian(canvasHeight / 3, 0);
+                 ctx.beginPath();
+                 ctx.arc(staticPlayerPos.x, staticPlayerPos.y, playerBaseSize, 0, Math.PI * 2);
+                 ctx.fillStyle = player.color;
+                 ctx.fill();
+            }
+            console.log(`Canvas resized to: ${canvas.width}x${canvas.height}. Player orbital limits: [${player.minOrbitalRadius.toFixed(2)}, ${player.maxOrbitalRadius.toFixed(2)}]`);
+        }
+
+        // Initial setup
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas(); 
+        updateHighScoreDisplay(); 
+        console.log("Game script loaded. Waiting for Start Game button press.");
+
+    </script>
+</body>
+</html>
